@@ -26,7 +26,8 @@ FILE_FORMAT_CSV = '.csv'
 BASE_PATH = "adl://novelisadls.azuredatalakestore.net/"
 
 #input path for machine center files
-RAW_PATH_PAR = ['landing/pinda/iba/standard/material_length']
+RAW_PATH_PAR = ['landing/pinda/iba/standard/material_length',
+                'landing/yeongju/iba/standard/material_length']
 #input path for mes files
 RAW_PATH_CSV = ['landing/pinda/mes',
                 'landing/yeongju/mes']
@@ -192,30 +193,39 @@ spark.sql("USE {}".format(DB_NAME))
 
 # COMMAND ----------
 
-#get file_names as list from the file_log delta table
+"""#get file_names as list from the file_log delta table
 log_table_data = spark.sql("SELECT {} FROM {}.{}".format(raw_file_name, DB_NAME, TABLE_NAME))
-log_table_data_list = [x[0] for x in log_table_data.select(raw_file_name).collect()]
+log_table_data_list = [x[0] for x in log_table_data.select(raw_file_name).collect()]"""
 
 # COMMAND ----------
 
-#get file_names from the dataframe to be appended
-file_names_list = [x[0] for x in df.select(raw_file_name).collect()]
+try:
+  #get file_names as list from the file_log delta table
+  log_table_data = spark.sql("SELECT {} FROM {}.{}".format(raw_file_name, DB_NAME, TABLE_NAME))
+  log_table_data_p = log_table_data.toPandas() 
+  log_table_data_list = log_table_data_p[raw_file_name]
+  
+except:
+  pass
+
+else:   
+  #get file_names from the dataframe to be appended
+  file_names_list = [x[0] for x in df.select(raw_file_name).collect()]
+  
+  #get files not stored in delta table # all files: file_names_list # delta table files : log_table_data_list
+  append_file_names_list = []
+  append_file_names_list = (set(file_names_list).difference(log_table_data_list))
+  
+  #filter dataframe to keep files from the append_files_names_list
+  df = df.where(df[raw_file_name].isin(append_file_names_list))  
 
 # COMMAND ----------
 
-#get files not stored in delta table # all files: file_names_list # delta table files : log_table_data_list
-append_file_names_list = []
-append_file_names_list = (set(file_names_list).difference(log_table_data_list))
-
-# COMMAND ----------
-
-#filter dataframe to keep files from the append_files_names_list
-df = df.where(df[raw_file_name].isin(append_file_names_list))
-
+#check for new records
 if df.count() ==0:
   dbutils.notebook.exit('No new files')
 
 # COMMAND ----------
 
 #saving the data and storing the data as delta table
-df.repartition(1).write.format('delta').mode('append').partitionBy('plant_name','machine_center').option('path',DESTINATION_PATH).saveAsTable(TABLE_NAME)
+df.write.format('delta').mode('append').partitionBy('plant_name','machine_center','file_name').option('path',DESTINATION_PATH).saveAsTable(DB_NAME+'.'+TABLE_NAME)

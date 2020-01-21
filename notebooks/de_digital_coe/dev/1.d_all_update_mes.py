@@ -10,6 +10,8 @@
 # MAGIC Input: All unread files with specific machine center (mes)
 # MAGIC 
 # MAGIC Output: Store data in delta table
+# MAGIC 
+# MAGIC Author: Chirag Agrawal
 
 # COMMAND ----------
 

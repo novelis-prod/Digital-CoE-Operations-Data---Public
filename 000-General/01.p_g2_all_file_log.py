@@ -59,21 +59,21 @@ env = 'prod'
 table_name = 'file_log'
 trn_db = 'opstrnprodg2'
 
-#creating a database
+#create database 
 spark.sql("CREATE DATABASE IF NOT EXISTS {}".format(trn_db))
 
 file_format_par = '.parquet'
 file_format_csv = '.csv'
 
-#base path for adls gen2
 base_path = "abfss://" + container + "@" + store_name + ".dfs.core.windows.net/"
 
-#input path for machine center iba files
-raw_path_par = ['landing/pinda/iba/standard/material_length','landing/yeongju/iba/standard/material_length/201_hfm1']
-#input path for mes files
-raw_path_csv = ['landing/pinda/mes','landing/yeongju/mes']
+#input path for machine center files
+scan_dir_mc = ['landing/pinda/iba/standard/material_length/','landing/yeongju/iba/standard/material_length/']
 
-#destination path for file log delta table
+#input path for mes files
+scan_dir_mes = ['landing/pinda/mes','landing/yeongju/mes']
+
+#destination path to store file log data
 destination_path = base_path + 'transform/' + env + '/file_log'
 
 #column names
@@ -89,17 +89,16 @@ is_read = 'is_read'
 error_code = 'error_code'
 processed_number = 'processed_number'
 coil_id ='coil_id'
-iba= 'iba'
-mes = 'MES'
-hrm ='HRM'
-hfm ='HFM'
-cm1 ='CM1'
-cm2 ='CM2'
-cm3 ='CM3'
+mes = 'mes'
+hrm ='hrm'
+hfm ='hfm'
+cm1 ='cm1'
+cm2 ='cm2'
+cm3 ='cm3'
 
 # COMMAND ----------
 
-#get all the file path details of parquet files from raw path 
+#define empty lists 
 file_paths = []
 file_names = []
 file_year  = []
@@ -110,7 +109,27 @@ file_plant_name=[]
 file_machine_center = []
 coil_processed_number = []
 file_coilid=[]
-for i in raw_path_par:
+
+#get all the file paths of csv files from raw path 
+for i in scan_dir_mes:
+  paths = file_system_client.get_paths(path=i)
+  for path in paths:
+    if file_format_csv in path.name:
+      file_paths.append(path.name)                     #extract file path
+      file_source.append(path.name.split('/')[2])      #extract file source name
+      file_names.append(path.name.split('/')[-1])      #extract file name
+      file_year.append(path.name.split('/')[-4])       #extract year
+      file_month.append(path.name.split('/')[-3])      #extract month
+      file_day.append(path.name.split('/')[-2])        #extract day
+      file_plant_name.append(path.name.split('/')[-6]) #extract plant name
+      file_machine_center.append(mes)                  #extract machine center details
+      coil_processed_number.append('0')                #define a default value to coil processed number
+      file_coilid.append('0')                          #define a default value to coil id
+
+# COMMAND ----------
+
+#get all the file path details of parquet files from raw path 
+for i in scan_dir_mc:
   paths = file_system_client.get_paths(path=i)
   for path in paths:
     if file_format_par in path.name:  
@@ -209,62 +228,6 @@ for i in raw_path_par:
 
 # COMMAND ----------
 
-#get all the file paths of csv files from raw path 
-for i in raw_path_csv:
-  paths = file_system_client.get_paths(path=i)
-  for path in paths:
-    if file_format_csv in path.name:
-      file_paths.append(path.name)                #extract file path
-      file_source.append(path.name.split('/')[2]) #extract file source name
-      file_names.append(path.name.split('/')[-1]) #extract file name
-      file_year.append(path.name.split('/')[-4])  #extract year
-      file_month.append(path.name.split('/')[-3]) #extract month
-      file_day.append(path.name.split('/')[-2])   #extract day
-      if 'pinda' in path.name:
-        file_plant_name.append('pinda')           #extract plant name
-        if 'mes' in path.name:
-          file_machine_center.append(mes)         #extract machine center details
-          coil_processed_number.append('0')       #define a default value to coil processed number
-          file_coilid.append('0')                 #define a default value to coil id
-        elif 'pcs' in path.name:
-          file_machine_center.append('pcs')
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-      elif 'oswego' in path.name:
-        file_plant_name.append('oswego')
-        if 'mes' in path.name:
-          file_machine_center.append(mes)
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-        elif 'pcs' in path.name:
-          file_machine_center.append('pcs')
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-      elif 'sierre' in path.name:
-        file_plant_name.append('sierre')
-        if 'mes' in path.name:
-          file_machine_center.append(mes)
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-        elif 'pcs' in path.name:
-          file_machine_center.append('pcs')
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-      elif 'yeongju' in path.name:
-        file_plant_name.append('yeongju')
-        if 'mes' in path.name:
-          file_machine_center.append(mes)
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-        elif 'pcs' in path.name:
-          file_machine_center.append('pcs')
-          coil_processed_number.append('0')
-          file_coilid.append('0')
-      else:
-        pass
-
-# COMMAND ----------
-
 #creating a dataframe from two lists and then adding a new column to the dataframe
 from pyspark.sql.functions import lit
 df = spark.createDataFrame(zip(file_names, file_paths,file_plant_name,file_source,file_machine_center,file_coilid,coil_processed_number, file_year, file_month, file_day), schema=[raw_file_name, raw_file_path,raw_plant_name,raw_file_source,raw_machine_center,coil_id,processed_number,raw_file_year,raw_file_month,raw_file_day]).withColumn(is_read, lit(0))
@@ -302,19 +265,3 @@ if df_insert.count() ==0:
   
 #write the data into a delta table
 df_insert.write.format('delta').mode('append').partitionBy('plant_name','machine_center','file_name').option('path',destination_path).saveAsTable((trn_db+'.'+table_name))
-
-# COMMAND ----------
-
-"""#insert the new records into file log delta table
-try:
-  file_log_tbl = DeltaTable.forPath(spark, destination_path)
-except:
-  print('file log table not found')
-  #store file log data in transform folder as a delta table
-  df.write.format('delta').mode('append').partitionBy('plant_name','machine_center','file_name').option('path',destination_path).saveAsTable((trn_db+'.'+table_name))
-else:
-  #insert new records
-  file_log_tbl.alias("file_log").merge( df.alias("fl_df"), "file_log.machine_center = fl_df.machine_center and fl_df.plant_name = file_log.plant_name and file_log.file_name=fl_df.file_name")\
-                                .whenNotMatchedInsertAll()\
-                                .execute()
-  """

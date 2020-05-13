@@ -228,7 +228,7 @@ df = df.withColumn(coil_id,F.when(col(coil_id)!=coil_id_max,lit(coil_id_max)).ot
 
 #update alloy id column with alloy id max
 alloy_id_max = df.select(alloy_id).na.drop(how="all").groupBy(alloy_id).count().orderBy('count', ascending=False).first()[0]
-df = df.withColumn(alloy_id, F.when(col(alloy_id)!=alloy_id_max,lit(alloy_id_max).cast('float')).otherwise(col(alloy_id).cast('float')))
+df = df.withColumn(alloy_id, F.when(col(alloy_id)!=alloy_id_max,lit(alloy_id_max)).otherwise(col(alloy_id)))
 
 # COMMAND ----------
 

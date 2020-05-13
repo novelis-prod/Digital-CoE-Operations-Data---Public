@@ -8,7 +8,11 @@
 # MAGIC 
 # MAGIC • Update the file log table if any errors raised while reading data into dataframe and change the column names from xx//yy//zz//abc to 'abc'
 # MAGIC 
-# MAGIC • Update the coilid column values with coilid value that has highest number of occurences in the data (maximum count value) 
+# MAGIC • Update the coilid column values with coilid value that has highest number of occurences in the data (maximum count value)
+# MAGIC 
+# MAGIC • Check coilid column values to ensure that they are not decimals
+# MAGIC 
+# MAGIC • Update the alloyid column values with coilid value that has highest number of occurences in the data (maximum count value)
 # MAGIC 
 # MAGIC • Update some specific column values with zeros for NaN and negative values and round the remaining values to 2 decimal places
 # MAGIC 
@@ -82,8 +86,6 @@ seq_num=spark.sql("SELECT {} FROM {}.{} WHERE {}={}".format(machine_center_seq,t
 # define columns to validate 
 DE_cols        = ['eg_LengthIndex',
                   'eg_ReverseLengthIndex',
-                  'eRg_EntryThickness',
-                  'eRg_ExitThickness',
                   'eRg_EntryHeadDiscard',
                   'eRg_EntryTailDiscard',
                   'eRg_ExitHeadDiscard',
@@ -126,6 +128,8 @@ destination_path   = base_path +'/enterprise'+ '/' + env + '/' + plant_name + '/
 #table_name
 table_name = plant_abb.get(plant_name) +'_'+machine_center
 
+#define alloyid column
+alloy_id = 'cg_Gen_Alloy'
 #define coilid column
 if machine_center in ('cm1','cm2','cm3'):
   coil_id ='cg_Gen_CoilID'
@@ -193,6 +197,9 @@ if coil_id not in df.columns:
 #delete the recrods with all null values
 df = df.na.drop(how='all')
 
+# dropping duplicates
+df = df.drop_duplicates()
+
 # COMMAND ----------
 
 # MAGIC %md Update Coil id column values
@@ -200,20 +207,28 @@ df = df.na.drop(how='all')
 # COMMAND ----------
 
 #get coil id which has maximum count
-coil_id_max = df.groupBy(coil_id).count().orderBy(desc('count')).first()[0]
-
-#check for coilid values
-if coil_id_max < 1000:
-  file_log_tbl.update((col('machine_center')==machine_center.upper()) & (col("file_name") == file_name),{"error_code": lit('Incorrect coilid value')})
-  dbutils.notebook.exit('Incorrect Coilid Value')
-  
-#check for coilid values
-if coil_id_max == 0 or str(coil_id_max) == 'nan':
+try:
+  from pyspark.sql.functions import desc, col
+  coil_id_max = df.select(coil_id).na.drop(how="all").groupby(coil_id).count().sort(desc('count')).first()[0]
+  #coil_id_max = df.where(col(coil_id)<>'NaN').groupBy(coil_id).count().orderBy(desc('count')).first()[0]
+except:
   file_log_tbl.update((col('machine_center')==machine_center.upper()) & (col("file_name") == file_name),{"error_code": lit('No value in coilid')})
   dbutils.notebook.exit('No Coilid Value')
+  
+#check for coilid values
+b = str(coil_id_max).split('.')  # splitting the number on decimal
+c = int(b[-1]) # getting the value after decimal and converting it into decimal
+
+if ((coil_id_max < 1000) and (c>0)): # checking if coil_id_max is less than 1000 or decimal value is greater than 0, then it is incorrect coil_id values
+  file_log_tbl.update((col('machine_center')==machine_center.upper()) & (col("file_name") == file_name),{"error_code": lit('Incorrect coilid value')})
+  dbutils.notebook.exit('Incorrect Coilid Value')
 
 #update coil id column with coli id max
 df = df.withColumn(coil_id,F.when(col(coil_id)!=coil_id_max,lit(coil_id_max)).otherwise(col(coil_id)).cast('float'))
+
+#update alloy id column with alloy id max
+alloy_id_max = df.select(alloy_id).na.drop(how="all").groupBy(alloy_id).count().orderBy('count', ascending=False).first()[0]
+df = df.withColumn(alloy_id, F.when(col(alloy_id)!=alloy_id_max,lit(alloy_id_max).cast('float')).otherwise(col(alloy_id).cast('float')))
 
 # COMMAND ----------
 
@@ -246,10 +261,14 @@ df =df.withColumn('filename',lit((x[-1].split('.'))[0]))\
 df =df.withColumn('Time', col('Time').cast('timestamp'))
 
 #convert the column datatypes to make schema compatible 
-if machine_center == 'HFM' :
+if machine_center.upper() == 'HFM' :
   df = df.withColumn('dg_TensionReel_Loaded',col('dg_TensionReel_Loaded').cast('boolean'))
-elif machine_center =='CM3':
-  df =df.withColumn('dg_ST2_AFC_Control_Enable', col('dg_ST2_AFC_Control_Enable').cast('boolean'))             
+elif machine_center.upper() =='CM3':
+  df =df.withColumn('dg_ST2_AFC_Control_Enable', col('dg_ST2_AFC_Control_Enable').cast('boolean'))     
+elif machine_center.upper() == 'CM1':
+  df=df.withColumnRenamed(coil_id, "cg_Gen_Coilid")
+  coil_id = "cg_Gen_Coilid"
+  
 else:
   pass
 
